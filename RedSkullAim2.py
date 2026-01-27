@@ -41,7 +41,7 @@ EXPIRE_DATE = datetime(2026, 2, 28)
 PROGRAM_NAME = "redaim"
 FIREBASE_DB_URL = "https://redskull-8888-default-rtdb.asia-southeast1.firebasedatabase.app"
 FIREBASE_AUTH_TOKEN = ""  # leave empty if database rules are public
-DEFAULT_TRIAL_DAYS = 3
+DEFAULT_TRIAL_DAYS = 15
 license_plan = None
 
 RESOLUTION_PRESETS = {
@@ -203,7 +203,7 @@ def check_firebase_license():
     if not customer.get("status", False):
         messagebox.showerror(
             "Access Denied",
-            f"ไม่ได้รับอนุญาตให้ใช้งาน\nรหัสสมาชิกของคุณคือ:\n{display_uuid}\nโปรดติดต่อแอดมิน",
+            f"ไม่ได้รับอนุญาตให้ใช้งาน\nรหัสสมาชิกของคุณคือ:\n{uuid}\nโปรดติดต่อแอดมิน",
         )
         sys.exit()
 

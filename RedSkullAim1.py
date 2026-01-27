@@ -19,10 +19,7 @@ import ctypes
 import socket
 import threading
 import os
-import winreg
-import subprocess
-from datetime import datetime, timedelta
-from urllib.parse import quote
+from datetime import datetime
 
 import keyboard
 import mouse
@@ -38,11 +35,6 @@ import requests
 # ---------- ตั้งค่าทั่วไป ----------
 ICON_PATH = os.path.join(os.path.dirname(__file__), "img", "redaim.ico")
 EXPIRE_DATE = datetime(2026, 2, 28)
-PROGRAM_NAME = "redaim"
-FIREBASE_DB_URL = "https://redskull-8888-default-rtdb.asia-southeast1.firebasedatabase.app"
-FIREBASE_AUTH_TOKEN = ""  # leave empty if database rules are public
-DEFAULT_TRIAL_DAYS = 3
-license_plan = None
 
 RESOLUTION_PRESETS = {
     "1920x1080": {"top": 0, "left": 960, "width": 40, "height": 540},
@@ -98,144 +90,7 @@ def hide_file(filepath):
         print(f"Failed to hide file: {e}")
 
 
-# ---------- Firebase license check ----------
-def get_machine_uuid():
-    """Return Windows machine GUID as the device UUID."""
-    try:
-        access = winreg.KEY_READ
-        # ensure we read 64-bit view even when python is 32-bit
-        if hasattr(winreg, "KEY_WOW64_64KEY"):
-            access |= winreg.KEY_WOW64_64KEY
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\\Microsoft\\Cryptography", 0, access) as key:
-            value, _ = winreg.QueryValueEx(key, "MachineGuid")
-            if value:
-                return str(value).strip()
-    except Exception as exc:
-        print(f"Failed to read MachineGuid from registry: {exc}")
-
-    # fallback 1: WMIC
-    try:
-        output = subprocess.check_output(["wmic", "csproduct", "get", "uuid"], text=True, timeout=5, creationflags=0x08000000)
-        parts = [p.strip() for p in output.splitlines() if p.strip() and p.strip().lower() != "uuid"]
-        if parts:
-            return parts[0]
-    except Exception as exc:
-        print(f"Failed to read UUID via WMIC: {exc}")
-
-    # fallback 2: GetCurrentHwProfile
-    try:
-        class HW_PROFILE_INFO(ctypes.Structure):
-            _fields_ = [
-                ("dwDockInfo", ctypes.c_ulong),
-                ("szHwProfileGuid", ctypes.c_wchar * 39),
-                ("szHwProfileName", ctypes.c_wchar * 80),
-            ]
-
-        info = HW_PROFILE_INFO()
-        if ctypes.windll.user32.GetCurrentHwProfileW(ctypes.byref(info)):
-            guid = info.szHwProfileGuid.strip("{}").strip()
-            if guid:
-                return guid
-    except Exception as exc:
-        print(f"Failed to read UUID via GetCurrentHwProfile: {exc}")
-
-    return None
-
-
-def build_firebase_customer_url(uuid: str) -> str:
-    base_url = FIREBASE_DB_URL.rstrip("/")
-    path = f"/customers/{quote(uuid)}.json"
-    if FIREBASE_AUTH_TOKEN and "YOUR_DB_AUTH_TOKEN" not in FIREBASE_AUTH_TOKEN:
-        return f"{base_url}{path}?auth={FIREBASE_AUTH_TOKEN}"
-    return base_url + path
-
-
-def _parse_iso_datetime(value: str):
-    if not value:
-        return None
-    try:
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
-        return datetime.fromisoformat(value)
-    except Exception:
-        return None
-
-
-def fetch_or_create_customer(uuid: str) -> dict:
-    if not FIREBASE_DB_URL or "your-project-id" in FIREBASE_DB_URL:
-        raise RuntimeError("FirebaseDbUrl is not configured")
-
-    url = build_firebase_customer_url(uuid)
-    response = requests.get(url, timeout=8)
-    if response.ok and response.text.strip() not in ("", "null"):
-        return response.json()
-
-    now_utc = datetime.utcnow()
-    payload = {
-        "name": "ผู้ใช้ทดสอบ",
-        "plan": "free",
-        "status": True,
-        "program": PROGRAM_NAME,
-        "createdAt": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "expiry": (now_utc + timedelta(days=DEFAULT_TRIAL_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    put_response = requests.put(url, json=payload, timeout=8)
-    put_response.raise_for_status()
-    return payload
-
-
-def check_firebase_license():
-    global EXPIRE_DATE, license_plan
-
-    raw_uuid = get_machine_uuid()
-    if not raw_uuid:
-        messagebox.showerror("ไม่พบรหัสเครื่อง", "ไม่สามารถอ่าน Machine UUID ได้")
-        sys.exit()
-    uuid = f"{raw_uuid}-aim"
-    display_uuid = raw_uuid
-
-    try:
-        customer = fetch_or_create_customer(uuid)
-    except Exception as exc:
-        messagebox.showerror("Connection Error", f"ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้\n{exc}")
-        sys.exit()
-
-    if not customer.get("status", False):
-        messagebox.showerror(
-            "Access Denied",
-            f"ไม่ได้รับอนุญาตให้ใช้งาน\nรหัสสมาชิกของคุณคือ:\n{display_uuid}\nโปรดติดต่อแอดมิน",
-        )
-        sys.exit()
-
-    plan = str(customer.get("plan", "")).lower()
-    license_plan = plan or "unknown"
-
-    if plan == "member":
-        EXPIRE_DATE = datetime(2099, 1, 1)
-        messagebox.showinfo("สถานะโปรแกรม", f"ได้รับอนุญาต (สมาชิก: {customer.get('name', 'ไม่ระบุ')})")
-        return
-
-    if plan == "free":
-        expiry_dt = _parse_iso_datetime(customer.get("expiry", ""))
-        if expiry_dt is None:
-            messagebox.showerror("Error", "รูปแบบวันหมดอายุไม่ถูกต้อง")
-            sys.exit()
-        if expiry_dt.tzinfo:
-            expiry_dt = expiry_dt.astimezone().replace(tzinfo=None)
-        EXPIRE_DATE = expiry_dt
-        messagebox.showinfo(
-            "สถานะโปรแกรม",
-            f"Free ทดลองถึง {expiry_dt.strftime('%d/%m/%Y %H:%M')} (UUID: {display_uuid})",
-        )
-        return
-
-    messagebox.showerror("Error", f"รูปแบบแผนไม่รองรับ: {plan}")
-    sys.exit()
-
-
 def check_expiration():
-    if license_plan == "member":
-        return
     today = datetime.now()
     if today > EXPIRE_DATE:
         message_box("โปรแกรมหมดอายุ", "หมดอายุการใช้งานแล้ว")
@@ -243,8 +98,6 @@ def check_expiration():
 
 
 def show_time_remaining():
-    if license_plan == "member":
-        return
     now = datetime.now()
     remaining = EXPIRE_DATE - now
     if remaining.total_seconds() > 0:
@@ -667,16 +520,15 @@ def check_keys():
 
 # ---------- main ----------
 def main():
-    if not check_internet_connection():
-        messagebox.showerror("เธเธฒเธ”เธเธฒเธฃเน€เธเธทเนเธญเธกเธ•เนเธญ", "เนเธกเนเธเธเธเธฒเธฃเน€เธเธทเนเธญเธกเธ•เนเธญเธญเธดเธเน€เธ—เธญเธฃเนเน€เธเนเธ• เนเธเธฃเนเธเธฃเธกเธเธฐเธเธดเธ”เธ•เธฑเธงเธฅเธ")
-        sys.exit()
-
-    check_firebase_license()
     show_time_remaining()
     check_expiration()
 
+    if not check_internet_connection():
+        messagebox.showerror("ขาดการเชื่อมต่อ", "ไม่พบการเชื่อมต่ออินเทอร์เน็ต โปรแกรมจะปิดตัวลง")
+        sys.exit()
+
     select_resolution()
-    print("Ready. F1-F10 เน€เธฅเธทเธญเธเนเธซเธกเธ”, F11 เธเธฑเธ, F12 เธญเธญเธ, Insert เน€เธเธฅเธตเนเธขเธเธเธฃเธญเธ")
+    print("Ready. F1-F10 เลือกโหมด, F11 พัก, F12 ออก, Insert เปลี่ยนกรอบ")
 
     while True:
         check_keys()
