@@ -21,7 +21,7 @@ import threading
 import os
 import winreg
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import keyboard
@@ -37,7 +37,8 @@ import requests
 
 # ---------- ตั้งค่าทั่วไป ----------
 ICON_PATH = os.path.join(os.path.dirname(__file__), "img", "redaim.ico")
-EXPIRE_DATE = datetime(2026, 2, 28)
+TH_TZ = timezone(timedelta(hours=7))
+EXPIRE_DATE = datetime(2026, 2, 28, tzinfo=TH_TZ)
 PROGRAM_NAME = "redaim"
 FIREBASE_DB_URL = "https://redskull-8888-default-rtdb.asia-southeast1.firebasedatabase.app"
 FIREBASE_AUTH_TOKEN = ""  # leave empty if database rules are public
@@ -98,6 +99,22 @@ def hide_file(filepath):
         print(f"Failed to hide file: {e}")
 
 
+def now_in_th():
+    """Return current datetime in Thailand timezone."""
+    return datetime.now(TH_TZ)
+
+
+def format_dt_ad(dt: datetime) -> str:
+    """Format datetime using Gregorian year regardless of OS locale."""
+    dt_th = dt.astimezone(TH_TZ)
+    return f"{dt_th.day:02d}/{dt_th.month:02d}/{dt_th.year:04d} {dt_th.hour:02d}:{dt_th.minute:02d}"
+
+
+def iso_th(dt: datetime) -> str:
+    """ISO8601 string in Thai time (+07:00) with seconds precision."""
+    return dt.astimezone(TH_TZ).replace(microsecond=0).isoformat()
+
+
 # ---------- Firebase license check ----------
 def get_machine_uuid():
     """Return Windows machine GUID as the device UUID."""
@@ -156,7 +173,10 @@ def _parse_iso_datetime(value: str):
     try:
         if value.endswith("Z"):
             value = value[:-1] + "+00:00"
-        return datetime.fromisoformat(value)
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=TH_TZ)
+        return dt.astimezone(TH_TZ)
     except Exception:
         return None
 
@@ -170,14 +190,15 @@ def fetch_or_create_customer(uuid: str) -> dict:
     if response.ok and response.text.strip() not in ("", "null"):
         return response.json()
 
-    now_utc = datetime.utcnow()
+    now_th = now_in_th()
+    expiry_th = now_th + timedelta(days=DEFAULT_TRIAL_DAYS)
     payload = {
         "name": "ผู้ใช้ทดสอบ",
         "plan": "free",
         "status": True,
         "program": PROGRAM_NAME,
-        "createdAt": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "expiry": (now_utc + timedelta(days=DEFAULT_TRIAL_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "createdAt": iso_th(now_th),
+        "expiry": iso_th(expiry_th),
     }
     put_response = requests.put(url, json=payload, timeout=8)
     put_response.raise_for_status()
@@ -211,7 +232,7 @@ def check_firebase_license():
     license_plan = plan or "unknown"
 
     if plan == "member":
-        EXPIRE_DATE = datetime(2099, 1, 1)
+        EXPIRE_DATE = datetime(2099, 1, 1, tzinfo=TH_TZ)
         messagebox.showinfo("สถานะโปรแกรม", f"ได้รับอนุญาต (สมาชิก: {customer.get('name', 'ไม่ระบุ')})")
         return
 
@@ -220,12 +241,10 @@ def check_firebase_license():
         if expiry_dt is None:
             messagebox.showerror("Error", "รูปแบบวันหมดอายุไม่ถูกต้อง")
             sys.exit()
-        if expiry_dt.tzinfo:
-            expiry_dt = expiry_dt.astimezone().replace(tzinfo=None)
         EXPIRE_DATE = expiry_dt
         messagebox.showinfo(
             "สถานะโปรแกรม",
-            f"Free ทดลองถึง {expiry_dt.strftime('%d/%m/%Y %H:%M')} (UUID: {display_uuid})",
+            f"Free ทดลองถึง {format_dt_ad(expiry_dt)} (UUID: {display_uuid})",
         )
         return
 
@@ -236,7 +255,7 @@ def check_firebase_license():
 def check_expiration():
     if license_plan == "member":
         return
-    today = datetime.now()
+    today = now_in_th()
     if today > EXPIRE_DATE:
         message_box("โปรแกรมหมดอายุ", "หมดอายุการใช้งานแล้ว")
         sys.exit()
@@ -245,7 +264,7 @@ def check_expiration():
 def show_time_remaining():
     if license_plan == "member":
         return
-    now = datetime.now()
+    now = now_in_th()
     remaining = EXPIRE_DATE - now
     if remaining.total_seconds() > 0:
         days = remaining.days
@@ -253,7 +272,7 @@ def show_time_remaining():
         minutes, _ = divmod(remainder, 60)
         messagebox.showinfo(
             "เวลาคงเหลือ",
-            f"ใช้งานได้อีก {days} วัน {hours} ชม. {minutes} นาที\n(หมดอายุ {EXPIRE_DATE.strftime('%d/%m/%Y %H:%M')})",
+            f"ใช้งานได้อีก {days} วัน {hours} ชม. {minutes} นาที\n(หมดอายุ {format_dt_ad(EXPIRE_DATE)})",
         )
     else:
         check_expiration()
@@ -303,7 +322,8 @@ def select_resolution():
     ttk.Label(
         root,
         text="F1 กล | F2 ซอง | F3 ซองบัพ | F4 ซองเบ | F5 สไน\n"
-             "F6 สไนบัพ | F7 สไนเบ | F8 Kar98 TSR | F9 TSRบัพ | F10 TSRเบ | F11 พัก | F12 ปิด | Ins ปรับขนาด",
+             "F6 สไนบัพ | F7 สไนเบ | F8 Kar98 TSR | F9 TSRบัพ | F10 TSRเบ \n" 
+             "F11 พัก | F12 ปิด | Ins ปรับขนาด",
         justify="center",
         font=("Segoe UI", 8),
         background="#f0f4f7",
