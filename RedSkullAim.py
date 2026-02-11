@@ -1,7 +1,8 @@
-"""
+﻿"""
 pyinstaller --onefile --noconsole --icon "img/redaim.ico" --add-data "img\\redaim.ico;img" --add-data "img\\background.png;img" RedSkullAim.py
 
 pyarmor gen -O obf RedSkullAim.py
+pyarmor gen --obf-code 0 -O obf RedSkullAim.py
 pyinstaller --clean --noconfirm RedSkullAim_obf.spec
 
 python RedSkullAim.py
@@ -62,6 +63,7 @@ FIREBASE_DB_URL = "https://redskull-8888-default-rtdb.asia-southeast1.firebaseda
 FIREBASE_AUTH_TOKEN = ""  # leave empty if database rules are public
 DEFAULT_TRIAL_DAYS = 3
 license_plan = None
+license_user_name = "Unknown"
 
 RESOLUTION_PRESETS = {
     "1920x1080": {"top": 0, "left": 960, "width": 40, "height": 540},
@@ -78,6 +80,29 @@ RESOLUTION_PRESETS = {
 selected_region = {}
 current_function = None
 is_paused = False
+_prev_insert_down = False
+_prev_home_down = False
+
+HOTKEY_LINES = [
+    "F1  = ปืนกล (AR)",
+    "F2  = ลูกซอง (SG)",
+    "F3  = ลูกซอง (SG) มี Buff",
+    "F4  = ลูกซอง (SG) มีเบเร่ต์",
+    "F5  = สไนเปอร์ (Sniper)",
+    "F6  = สไนเปอร์ (Sniper) มี Buff",
+    "F7  = สไนเปอร์ (Sniper) มีเบเร่ต์",
+    "F8  = ปืน Kar98TSR",
+    "F9  = ปืน Kar98TSR มี Buff",
+    "F10 = ปืน Kar98TSR มีเบเร่ต์",
+    "F11 = หยุด (Pause)",
+    "F12 = ออก (Exit)",
+    "Home = เปิดโปรแกรมตั้งค่า (Setup Console)",
+    "Insert = เปิด/ปิดหน้าต่างปุ่มลัด (Hotkeys)",
+]
+
+_hotkey_window_visible = False
+_hotkey_close_event = threading.Event()
+_hotkey_window_lock = threading.Lock()
 
 
 # ---------- ฟังก์ชันยูทิล ----------
@@ -224,7 +249,7 @@ def fetch_or_create_customer(uuid: str) -> dict:
 
 
 def check_firebase_license():
-    global EXPIRE_DATE, license_plan
+    global EXPIRE_DATE, license_plan, license_user_name
 
     raw_uuid = get_machine_uuid()
     if not raw_uuid:
@@ -246,6 +271,7 @@ def check_firebase_license():
         )
         sys.exit()
 
+    license_user_name = str(customer.get("name", "")).strip() or "Unknown"
     plan = str(customer.get("plan", "")).lower()
     license_plan = plan or "unknown"
 
@@ -294,6 +320,30 @@ def show_time_remaining():
         )
     else:
         check_expiration()
+
+
+def _format_remaining_timer():
+    remaining = EXPIRE_DATE - now_in_th()
+    if remaining.total_seconds() <= 0:
+        return "EXPIRED"
+    days = remaining.days
+    hours, remainder = divmod(remaining.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def build_status_footer_text():
+    name = license_user_name or "Unknown"
+    plan = (license_plan or "unknown").upper()
+
+    if license_plan == "free":
+        status = f"User: {name} | Plan: FREE | Remaining: {_format_remaining_timer()}"
+    elif license_plan == "member":
+        status = f"User: {name} | Plan: MEMBER"
+    else:
+        status = f"User: {name} | Plan: {plan}"
+
+    return f"{status} | RedSkull Aim by RedSkull8888"
 
 
 def monitor_internet(root):
@@ -348,7 +398,7 @@ def _legacy_select_resolution():
         text="F1 กล | F2 ซอง | F3 ซองบัพ | F4 ซองเบ \n"
              "F5 สไน | F6 สไนบัพ | F7 สไนเบ \n"
              "F8 Kar98TSR | F9 Kar98TSRบัพ | F10 Kar98TSRเบ \n"
-             "F11 พัก | F12 ปิด | Insert เลือกขนาดกรอบ",
+             "F11 พัก | F12 ปิด | Home เปิดตั้งค่า | Insert เปิด/ปิด Hotkeys",
         justify="center",
         font=("Segoe UI", 8),
         background="#f0f4f7",
@@ -413,7 +463,25 @@ def select_resolution():
     style.map("Primary.TButton", background=[("active", "#4f6eff")])
     style.configure("Ghost.TButton", font=("Segoe UI", 10), padding=(14, 8), foreground="#d2d8ec", background="#2a3046")
     style.map("Ghost.TButton", background=[("active", "#394262")])
-    style.configure("Preset.TCombobox", fieldbackground="#20273a", background="#20273a", foreground="#f3f6ff", padding=8)
+    style.configure(
+        "Preset.TCombobox",
+        fieldbackground="#1f2740",
+        background="#1f2740",
+        foreground="#ffffff",
+        arrowcolor="#8fe3b5",
+        selectforeground="#ffffff",
+        selectbackground="#3a5cff",
+        padding=8,
+    )
+    style.map(
+        "Preset.TCombobox",
+        fieldbackground=[("readonly", "#1f2740"), ("focus", "#253055")],
+        background=[("readonly", "#1f2740"), ("active", "#253055")],
+        foreground=[("readonly", "#ffffff"), ("focus", "#ffffff")],
+        selectbackground=[("readonly", "#3a5cff")],
+        selectforeground=[("readonly", "#ffffff")],
+        arrowcolor=[("readonly", "#8fe3b5"), ("active", "#b7ffd8")],
+    )
 
     main = ttk.Frame(root, style="Main.TFrame", padding=(18, 14))
     main.pack(fill="both", expand=True)
@@ -423,7 +491,7 @@ def select_resolution():
     ttk.Label(header, text="REDSKULL AIM", style="Title.TLabel").pack(anchor="w")
     ttk.Label(
         header,
-        text="Setup ใหม่: เลือกความละเอียดกรอบตรวจจับและเริ่มใช้งานทันที (กด Insert เพื่อเรียกหน้าต่างนี้อีกครั้ง)",
+        text="Setup ใหม่: เลือกความละเอียดกรอบตรวจจับและเริ่มใช้งานทันที (กด Home เพื่อเรียกหน้าต่างนี้อีกครั้ง)",
         style="Subtitle.TLabel",
     ).pack(anchor="w", pady=(2, 0))
 
@@ -451,22 +519,7 @@ def select_resolution():
         style="Hint.TLabel",
         text="ปุ่มลัดทั้งหมดที่ใช้สลับโหมดระหว่างเล่น",
     ).pack(anchor="w", pady=(2, 10))
-    hotkeys = [
-        "F1  = ปืนกล (AR)",
-        "F2  = ลูกซอง (SG)",
-        "F3  = ลูกซอง (SG) มี Buff",
-        "F4  = ลูกซอง (SG) มีเบเร่ต์",
-        "F5  = สไนเปอร์ (Sniper)",
-        "F6  = สไนเปอร์ (Sniper) มี Buff",
-        "F7  = สไนเปอร์ (Sniper) มีเบเร่ต์",
-        "F8  = ปืน Kar98TSR",
-        "F9  = ปืน Kar98TSR มี Buff",
-        "F10 = ปืน Kar98TSR มีเบเร่ต์",
-        "F11 = หยุด (Pause)",
-        "F12 = ออก (Exit)",
-        "Insert = เปิดโปรแกรมตั้งค่า (Setup Console)",
-    ]
-    for text in hotkeys:
+    for text in HOTKEY_LINES:
         ttk.Label(hotkey_card, text=text, style="Body.TLabel").pack(anchor="w", pady=2)
 
     preset_card = ttk.Frame(content, style="Card.TFrame", padding=16)
@@ -485,6 +538,7 @@ def select_resolution():
         state="readonly",
         width=28,
         style="Preset.TCombobox",
+        font=("Segoe UI Semibold", 11),
     )
     combo.current(0)
     combo.pack(anchor="w", pady=(6, 12))
@@ -511,14 +565,104 @@ def select_resolution():
     ttk.Button(btn_row, text="ยืนยันและเริ่ม", style="Primary.TButton", command=on_select).pack(side="left")
     ttk.Button(btn_row, text="รีเฟรชพรีวิว", style="Ghost.TButton", command=update_preview).pack(side="left", padx=(10, 0))
 
-    ttk.Label(
-        main,
-        style="Status.TLabel",
-        text="Status: Ready | Theme: Night Ops | Layout: Dual Card",
-    ).pack(anchor="w", pady=(10, 0))
+    status_text = tk.StringVar(value=build_status_footer_text())
+    ttk.Label(main, style="Status.TLabel", textvariable=status_text).pack(anchor="w", pady=(10, 0))
+
+    def refresh_status_footer():
+        if not root.winfo_exists():
+            return
+        status_text.set(build_status_footer_text())
+        root.after(1000, refresh_status_footer)
+
+    refresh_status_footer()
 
     monitor_internet(root)
     root.mainloop()
+
+
+def _open_hotkey_window():
+    global _hotkey_window_visible
+
+    root = tk.Tk()
+    root.title("RedSkull Aim - Hotkeys")
+    root.geometry("460x430")
+    root.minsize(420, 380)
+    root.configure(bg="#171a24")
+    root.resizable(True, True)
+
+    try:
+        root.iconbitmap(ICON_PATH)
+    except Exception:
+        pass
+
+    frame = tk.Frame(root, bg="#171a24", padx=16, pady=14)
+    frame.pack(fill="both", expand=True)
+
+    title = tk.Label(
+        frame,
+        text="Hotkeys / Modes",
+        fg="#f3f6ff",
+        bg="#171a24",
+        font=("Segoe UI Semibold", 18),
+        anchor="w",
+    )
+    title.pack(anchor="w")
+
+    subtitle = tk.Label(
+        frame,
+        text="ปุ่มลัดทั้งหมดที่ใช้สลับโหมดระหว่างเล่น",
+        fg="#a8b0c8",
+        bg="#171a24",
+        font=("Segoe UI", 10),
+        anchor="w",
+    )
+    subtitle.pack(anchor="w", pady=(2, 12))
+
+    for line in HOTKEY_LINES:
+        tk.Label(
+            frame,
+            text=line,
+            fg="#e7ecff",
+            bg="#171a24",
+            font=("Segoe UI", 13),
+            anchor="w",
+            justify="left",
+        ).pack(anchor="w", pady=2)
+
+    def close_window():
+        global _hotkey_window_visible
+        with _hotkey_window_lock:
+            _hotkey_window_visible = False
+            _hotkey_close_event.clear()
+        if root.winfo_exists():
+            root.destroy()
+
+    def poll_close():
+        if _hotkey_close_event.is_set():
+            close_window()
+            return
+        if root.winfo_exists():
+            root.after(120, poll_close)
+
+    root.protocol("WM_DELETE_WINDOW", close_window)
+    root.after(120, poll_close)
+    root.mainloop()
+
+    with _hotkey_window_lock:
+        _hotkey_window_visible = False
+        _hotkey_close_event.clear()
+
+
+def toggle_hotkey_window():
+    global _hotkey_window_visible
+    with _hotkey_window_lock:
+        if _hotkey_window_visible:
+            _hotkey_close_event.set()
+            return
+        _hotkey_window_visible = True
+        _hotkey_close_event.clear()
+
+    threading.Thread(target=_open_hotkey_window, daemon=True).start()
 
 
 def find_game_window():
@@ -798,7 +942,7 @@ def is_insert_only_pressed() -> bool:
 
 
 def check_keys():
-    global is_paused, current_function
+    global is_paused, current_function, _prev_insert_down, _prev_home_down
     if keyboard.is_pressed("F1"):
         current_function = AR
         is_paused = False
@@ -859,9 +1003,17 @@ def check_keys():
         print("KAR98BERET started.")
         winsound.Beep(300, 200)
         time.sleep(0.15)
-    if is_insert_only_pressed():
+    home_down = keyboard.is_pressed("home")
+    if home_down and not _prev_home_down:
         select_resolution()
         time.sleep(0.2)
+    _prev_home_down = home_down
+
+    insert_down = is_insert_only_pressed()
+    if insert_down and not _prev_insert_down:
+        toggle_hotkey_window()
+        time.sleep(0.15)
+    _prev_insert_down = insert_down
     if keyboard.is_pressed("F11"):
         is_paused = True
         current_function = None
@@ -885,7 +1037,7 @@ def main():
     check_expiration()
 
     select_resolution()
-    print("Ready. ดูปุ่มลัดได้ที่หน้าต่าง 'เลือกความละเอียดหน้าจอ'")
+    print("Ready. กด Home เพื่อเปิด Setup และกด Insert เพื่อเปิด/ปิดหน้าต่าง Hotkeys")
 
     while True:
         check_keys()
