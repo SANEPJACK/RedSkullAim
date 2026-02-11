@@ -1,7 +1,7 @@
 """
 pyinstaller --onefile --noconsole --icon "img/redaim.ico" --add-data "img\\redaim.ico;img" --add-data "img\\background.png;img" RedSkullAim.py
 
-pyarmor gen RedSkullAim.py && pyinstaller --onefile --noconsole --icon "img/redaim.ico" --add-data "img\\redaim.ico;img" --add-data "img\\background.png;img" --add-data "dist\\pyarmor_runtime_000000;pyarmor_runtime_000000" dist\\RedSkullAim.py
+pyinstaller --clean --noconfirm RedSkullAim_obf.spec
 
 python RedSkullAim.py
 
@@ -32,6 +32,22 @@ import winsound
 import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
+import certifi
+
+# กันกรณี onefile: แตกไฟล์ไว้ใน sys._MEIPASS
+if getattr(sys, 'frozen', False):
+    base = getattr(sys, '_MEIPASS', '')
+    candidate = os.path.join(base, 'certifi', 'cacert.pem')
+    if os.path.exists(candidate):
+        os.environ['SSL_CERT_FILE'] = candidate
+        os.environ['REQUESTS_CA_BUNDLE'] = candidate
+    else:
+        # fallback ใช้ path ของ certifi โดยตรง
+        os.environ['SSL_CERT_FILE'] = certifi.where()
+        os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+else:
+    os.environ['SSL_CERT_FILE'] = certifi.where()
+    os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 
 # ---------- ตั้งค่าทั่วไป ----------
 ICON_PATH = os.path.join(os.path.dirname(__file__), "img", "redaim.ico")
