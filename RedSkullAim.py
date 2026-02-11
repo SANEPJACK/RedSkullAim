@@ -1,6 +1,7 @@
 """
 pyinstaller --onefile --noconsole --icon "img/redaim.ico" --add-data "img\\redaim.ico;img" --add-data "img\\background.png;img" RedSkullAim.py
 
+pyarmor gen -O obf RedSkullAim.py
 pyinstaller --clean --noconfirm RedSkullAim_obf.spec
 
 python RedSkullAim.py
@@ -310,7 +311,7 @@ def monitor_internet(root):
     threading.Thread(target=check_loop, daemon=True).start()
 
 
-def select_resolution():
+def _legacy_select_resolution():
     """แสดงหน้าต่างเลือกขนาดกรอบจับภาพ."""
 
     def on_select():
@@ -365,6 +366,161 @@ def select_resolution():
 
 
 # ---------- จับภาพ / ตรวจสี ----------
+# ---------- UI Override (redesigned resolution screen) ----------
+def select_resolution():
+    """Show redesigned setup window for selecting capture preset."""
+
+    def on_select():
+        global selected_region
+        choice = combo.get()
+        selected_region = RESOLUTION_PRESETS.get(choice, {})
+        root.destroy()
+
+    def update_preview(*_):
+        choice = combo.get()
+        region = RESOLUTION_PRESETS.get(choice)
+        if not region:
+            preview_value.set("ยังไม่มีค่าพรีเซ็ต")
+            return
+        preview_value.set(
+            f"TOP {region['top']} | LEFT {region['left']} | "
+            f"WIDTH {region['width']} | HEIGHT {region['height']}"
+        )
+
+    root = tk.Tk()
+    root.title("RedSkull Aim - Setup Console")
+    root.geometry("980x620")
+    root.minsize(900, 560)
+    root.configure(bg="#0f1118")
+
+    try:
+        root.iconbitmap(ICON_PATH)
+    except Exception:
+        pass
+
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    style.configure("Main.TFrame", background="#0f1118")
+    style.configure("Header.TFrame", background="#1a1d2b")
+    style.configure("Card.TFrame", background="#171a24")
+    style.configure("Title.TLabel", font=("Segoe UI Semibold", 20), foreground="#f3f6ff", background="#1a1d2b")
+    style.configure("Subtitle.TLabel", font=("Segoe UI", 10), foreground="#a8b0c8", background="#1a1d2b")
+    style.configure("CardTitle.TLabel", font=("Segoe UI Semibold", 12), foreground="#dce3ff", background="#171a24")
+    style.configure("Body.TLabel", font=("Segoe UI", 10), foreground="#d2d8ec", background="#171a24")
+    style.configure("Hint.TLabel", font=("Segoe UI", 9), foreground="#93a0bf", background="#171a24")
+    style.configure("Status.TLabel", font=("Segoe UI", 9), foreground="#7fffb5", background="#0f1118")
+    style.configure("Primary.TButton", font=("Segoe UI Semibold", 11), padding=(18, 10), foreground="#ffffff", background="#3a5cff")
+    style.map("Primary.TButton", background=[("active", "#4f6eff")])
+    style.configure("Ghost.TButton", font=("Segoe UI", 10), padding=(14, 8), foreground="#d2d8ec", background="#2a3046")
+    style.map("Ghost.TButton", background=[("active", "#394262")])
+    style.configure("Preset.TCombobox", fieldbackground="#20273a", background="#20273a", foreground="#f3f6ff", padding=8)
+
+    main = ttk.Frame(root, style="Main.TFrame", padding=(18, 14))
+    main.pack(fill="both", expand=True)
+
+    header = ttk.Frame(main, style="Header.TFrame", padding=(18, 12))
+    header.pack(fill="x", pady=(0, 14))
+    ttk.Label(header, text="REDSKULL AIM", style="Title.TLabel").pack(anchor="w")
+    ttk.Label(
+        header,
+        text="Setup ใหม่: เลือกความละเอียดกรอบตรวจจับและเริ่มใช้งานทันที (กด Insert เพื่อเรียกหน้าต่างนี้อีกครั้ง)",
+        style="Subtitle.TLabel",
+    ).pack(anchor="w", pady=(2, 0))
+
+    bg_img = load_background_image()
+    if bg_img:
+        sx = max(1, bg_img.width() // 250)
+        sy = max(1, bg_img.height() // 90)
+        bg_thumb = bg_img.subsample(sx, sy)
+        thumb = tk.Label(header, image=bg_thumb, bg="#1a1d2b", bd=0)
+        thumb.place(relx=1.0, rely=0.5, anchor="e")
+        root._bg_image = bg_img
+        root._bg_thumb = bg_thumb
+
+    content = ttk.Frame(main, style="Main.TFrame")
+    content.pack(fill="both", expand=True)
+    content.columnconfigure(0, weight=1, uniform="content")
+    content.columnconfigure(1, weight=1, uniform="content")
+    content.rowconfigure(0, weight=1)
+
+    hotkey_card = ttk.Frame(content, style="Card.TFrame", padding=16)
+    hotkey_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+    ttk.Label(hotkey_card, text="Hotkeys / Modes", style="CardTitle.TLabel").pack(anchor="w")
+    ttk.Label(
+        hotkey_card,
+        style="Hint.TLabel",
+        text="ปุ่มลัดทั้งหมดที่ใช้สลับโหมดระหว่างเล่น",
+    ).pack(anchor="w", pady=(2, 10))
+    hotkeys = [
+        "F1  = ปืนกล (AR)",
+        "F2  = ลูกซอง (SG)",
+        "F3  = ลูกซอง (SG) มี Buff",
+        "F4  = ลูกซอง (SG) มีเบเร่ต์",
+        "F5  = สไนเปอร์ (Sniper)",
+        "F6  = สไนเปอร์ (Sniper) มี Buff",
+        "F7  = สไนเปอร์ (Sniper) มีเบเร่ต์",
+        "F8  = ปืน Kar98TSR",
+        "F9  = ปืน Kar98TSR มี Buff",
+        "F10 = ปืน Kar98TSR มีเบเร่ต์",
+        "F11 = หยุด (Pause)",
+        "F12 = ออก (Exit)",
+        "Insert = เปิดโปรแกรมตั้งค่า (Setup Console)",
+    ]
+    for text in hotkeys:
+        ttk.Label(hotkey_card, text=text, style="Body.TLabel").pack(anchor="w", pady=2)
+
+    preset_card = ttk.Frame(content, style="Card.TFrame", padding=16)
+    preset_card.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+    ttk.Label(preset_card, text="Capture Preset", style="CardTitle.TLabel").pack(anchor="w")
+    ttk.Label(
+        preset_card,
+        style="Hint.TLabel",
+        text="เลือกขนาดหน้าจอที่ใช้ เพื่อกำหนดกรอบจับภาพด้านขวา",
+    ).pack(anchor="w", pady=(2, 12))
+
+    ttk.Label(preset_card, text="ความละเอียดหน้าจอ", style="Body.TLabel").pack(anchor="w")
+    combo = ttk.Combobox(
+        preset_card,
+        values=list(RESOLUTION_PRESETS.keys()),
+        state="readonly",
+        width=28,
+        style="Preset.TCombobox",
+    )
+    combo.current(0)
+    combo.pack(anchor="w", pady=(6, 12))
+
+    preview_value = tk.StringVar()
+    preview_box = tk.Label(
+        preset_card,
+        textvariable=preview_value,
+        anchor="w",
+        justify="left",
+        fg="#8fe3b5",
+        bg="#10131e",
+        font=("Consolas", 10),
+        padx=12,
+        pady=10,
+        relief="flat",
+    )
+    preview_box.pack(fill="x", pady=(0, 14))
+    update_preview()
+    combo.bind("<<ComboboxSelected>>", update_preview)
+
+    btn_row = ttk.Frame(preset_card, style="Card.TFrame")
+    btn_row.pack(fill="x", pady=(4, 0))
+    ttk.Button(btn_row, text="ยืนยันและเริ่ม", style="Primary.TButton", command=on_select).pack(side="left")
+    ttk.Button(btn_row, text="รีเฟรชพรีวิว", style="Ghost.TButton", command=update_preview).pack(side="left", padx=(10, 0))
+
+    ttk.Label(
+        main,
+        style="Status.TLabel",
+        text="Status: Ready | Theme: Night Ops | Layout: Dual Card",
+    ).pack(anchor="w", pady=(10, 0))
+
+    monitor_internet(root)
+    root.mainloop()
+
+
 def find_game_window():
     hwnd = win32gui.FindWindow("PBApp", None)
     return hwnd if hwnd != 0 else None

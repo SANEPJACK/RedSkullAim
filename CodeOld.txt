@@ -1,0 +1,88 @@
+# -*- mode: python ; coding: utf-8 -*-
+import sys, os
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+# --- Tcl/Tk paths (ต้องมาก่อนใช้ใน datas) ---
+tcl_root = os.path.join(sys.base_prefix, "tcl")
+tcl_dir  = os.path.join(tcl_root, "tcl8.6")
+tk_dir   = os.path.join(tcl_root, "tk8.6")
+
+# เก็บ submodules/data ของแพ็กเกจที่ PyInstaller มักวิเคราะห์หลุด (โดยเฉพาะหลัง obfuscate)
+hidden = [
+    'ctypes',
+    'ctypes.wintypes',
+    'ctypes.util',
+    'types',
+    'inspect',
+    'importlib',
+    'pkgutil',
+    'encodings',
+]
+
+datas = [
+    ('img\\redaim.ico', 'img'),
+    ('img\\background.png', 'img'),
+    ('obf\\pyarmor_runtime_000000', 'pyarmor_runtime_000000'),
+
+    # --- Tkinter runtime needs these ---
+    (tcl_dir, '_tcl_data'),
+    (tk_dir, '_tk_data'),
+]
+
+# ตอกทั้งแพ็กเกจ keyboard (รวมทุก submodule)
+hidden += collect_submodules('keyboard')
+datas  += collect_data_files('keyboard')
+
+# ถ้าคุณใช้ mouse package จริงค่อยเปิด 2 บรรทัดนี้
+# hidden += collect_submodules('mouse')
+# datas  += collect_data_files('mouse')
+
+# ถ้าคุณใช้ OpenCV จริงค่อยเปิด 2 บรรทัดนี้ (และอย่า import cv2 ใน rth_force_imports.py)
+# hidden += collect_submodules('cv2')
+# datas  += collect_data_files('cv2')
+
+
+# ---------- OpenCV (🔥 สำคัญมาก) ----------
+hidden += collect_submodules('cv2')
+datas  += collect_data_files('cv2')
+
+hidden += collect_submodules('certifi')
+datas  += collect_data_files('certifi')
+
+a = Analysis(
+    ['obf\\RedSkullAim.py'],
+    pathex=[],
+    binaries=[],
+    datas=datas,
+    hiddenimports=hidden,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=['rth_force_imports.py'],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='RedSkullAim',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['img\\redaim.ico'],
+)
